@@ -1,0 +1,89 @@
+name: Publish GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing git tag to publish, for example v1.0.0
+        required: true
+        type: string
+      release_name:
+        description: Optional release title override
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-release:
+    runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.ref_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.ref }}
+
+      - name: Ensure tag exists
+        run: git rev-parse "${TAG_NAME}^{tag}" >/dev/null 2>&1 || git rev-parse "${TAG_NAME}^{commit}" >/dev/null 2>&1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build extension zip
+        run: pnpm --filter chrome-mcp-server zip
+
+      - name: Resolve release asset
+        id: asset
+        run: |
+          set -euo pipefail
+
+          ZIP_FILE="$(find app/chrome-extension/.output -maxdepth 1 -type f -name '*.zip' | head -n 1)"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No zip artifact was generated under app/chrome-extension/.output"
+            exit 1
+          fi
+
+          ASSET_NAME="${GITHUB_REPOSITORY#*/}-${TAG_NAME}.zip"
+          cp "$ZIP_FILE" "./${ASSET_NAME}"
+
+          echo "path=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+          echo "name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RELEASE_NAME_INPUT="${{ github.event.inputs.release_name }}"
+          RELEASE_NAME="${RELEASE_NAME_INPUT:-$TAG_NAME}"
+
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${{ steps.asset.outputs.path }}" --clobber
+          else
+            gh release create "${TAG_NAME}" "${{ steps.asset.outputs.path }}" \
+              --title "${RELEASE_NAME}" \
+              --generate-notes
+          fi
