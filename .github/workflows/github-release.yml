@@ -50,7 +50,12 @@ jobs:
           pnpm --version
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Prepare workspace packages
+        run: |
+          pnpm --filter chrome-mcp-shared build
+          pnpm --filter chrome-mcp-server run postinstall
 
       - name: Build extension zip
         run: pnpm --filter chrome-mcp-server zip
