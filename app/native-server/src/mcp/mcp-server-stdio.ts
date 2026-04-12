@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   CallToolRequestSchema,
@@ -15,7 +15,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import * as fs from 'fs';
 import * as path from 'path';
 
-let stdioMcpServer: Server | null = null;
+let stdioMcpServer: McpServer | null = null;
 let mcpClient: Client | null = null;
 
 // Read configuration from stdio-config.json
@@ -34,7 +34,7 @@ export const getStdioMcpServer = () => {
   if (stdioMcpServer) {
     return stdioMcpServer;
   }
-  stdioMcpServer = new Server(
+  stdioMcpServer = new McpServer(
     {
       name: 'StdioChromeMcpServer',
       version: '1.0.0',
@@ -73,20 +73,20 @@ export const ensureMcpClient = async () => {
   }
 };
 
-export const setupTools = (server: Server) => {
+export const setupTools = (server: McpServer) => {
   // List tools handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_SCHEMAS }));
+  server.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_SCHEMAS }));
 
   // Call tool handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) =>
+  server.server.setRequestHandler(CallToolRequestSchema, async (request) =>
     handleToolCall(request.params.name, request.params.arguments || {}),
   );
 
   // List resources handler - REQUIRED BY MCP PROTOCOL
-  server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
+  server.server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }));
 
   // List prompts handler - REQUIRED BY MCP PROTOCOL
-  server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
+  server.server.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: [] }));
 };
 
 const handleToolCall = async (name: string, args: any): Promise<CallToolResult> => {

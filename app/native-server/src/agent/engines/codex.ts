@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import readline from 'node:readline';
 import path from 'node:path';
+import os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import {
   CODEX_AUTO_INSTRUCTIONS,
@@ -37,6 +39,23 @@ export class CodexEngine implements AgentEngine {
   public readonly name = 'codex' as const;
   public readonly supportsMcp = false;
   private readonly toolBridge: AgentToolBridge;
+  private static readonly COMMON_CODEX_PATHS = (() => {
+    const home = os.homedir();
+    if (process.platform === 'win32') {
+      return [
+        path.join(home, 'AppData', 'Roaming', 'npm', 'codex.cmd'),
+        path.join(home, '.npm-global', 'codex.cmd'),
+      ];
+    }
+
+    return [
+      path.join(home, '.npm-global', 'bin', 'codex'),
+      path.join(home, '.local', 'bin', 'codex'),
+      '/opt/homebrew/bin/codex',
+      '/usr/local/bin/codex',
+      '/usr/bin/codex',
+    ];
+  })();
 
   constructor(toolBridge?: AgentToolBridge) {
     this.toolBridge = toolBridge ?? new AgentToolBridge();
@@ -103,7 +122,7 @@ export class CodexEngine implements AgentEngine {
       ? await this.appendProjectContext(normalizedInstruction, repoPath)
       : normalizedInstruction;
 
-    const executable = process.platform === 'win32' ? 'codex.cmd' : 'codex';
+    const executable = this.resolveCodexExecutable();
     const args: string[] = [
       'exec',
       '--json',
@@ -161,11 +180,14 @@ export class CodexEngine implements AgentEngine {
 
     args.push(prompt);
 
+    // Build env before entering Promise constructor (must be awaited)
+    const codexEnv = await this.buildCodexEnv();
+
     // Use explicit Promise wrapping to ensure child process errors are properly rejected.
     return new Promise<void>((resolve, reject) => {
       const child = spawn(executable, args, {
         cwd: repoPath,
-        env: this.buildCodexEnv(),
+        env: codexEnv,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
@@ -759,13 +781,44 @@ Work directly in the current directory. Do not create subdirectories unless spec
     return filePath;
   }
 
-  private buildCodexEnv(): NodeJS.ProcessEnv {
+  /**
+   * Build environment variables for Codex CLI.
+   *
+   * Reads ~/.codex/config.toml to extract:
+   *   - base_url  → OPENAI_BASE_URL (only if not already in process.env)
+   *   - env_key   → the env var name whose value becomes OPENAI_API_KEY
+   *                 (only if OPENAI_API_KEY is not already in process.env)
+   *
+   * Priority: process.env > ~/.codex/config.toml
+   *
+   * config.toml structure (TOML format):
+   * ```toml
+   * model_provider = "my-provider"
+   * model = "gpt-4o-mini"
+   *
+   * [model_providers.my-provider]
+   * name = "My Provider"
+   * base_url = "https://your-proxy.example.com/v1"
+   * env_key = "MY_OPENAI_API_KEY"
+   * ```
+   */
+  private async buildCodexEnv(): Promise<NodeJS.ProcessEnv> {
     const env: NodeJS.ProcessEnv = { ...process.env };
+
+    // Apply ~/.codex/config.toml settings as fallback
+    await this.applyCodexConfig(env);
+
     const extraPaths: string[] = [];
+    const home = os.homedir();
     const globalPath = process.env.NPM_GLOBAL_PATH;
     if (globalPath) {
       extraPaths.push(globalPath);
     }
+    if (process.env.PNPM_HOME) {
+      extraPaths.push(process.env.PNPM_HOME);
+    }
+    extraPaths.push(path.join(home, '.npm-global', 'bin'));
+    extraPaths.push(path.join(home, '.local', 'bin'));
     // Enhanced Windows PATH handling (aligned with other/cweb)
     if (process.platform === 'win32') {
       const appData = process.env.APPDATA;
@@ -776,12 +829,157 @@ Work directly in the current directory. Do not create subdirectories unless spec
       if (localApp) {
         extraPaths.push(path.join(localApp, 'Programs', 'nodejs'));
       }
+    } else {
+      // Chrome-launched native hosts often inherit a minimal PATH on macOS/Linux.
+      extraPaths.push('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin');
     }
     if (extraPaths.length > 0) {
       const currentPath = env.PATH || env.Path || '';
-      env.PATH = [...extraPaths, currentPath].filter(Boolean).join(path.delimiter);
+      env.PATH = Array.from(new Set([...extraPaths, currentPath].filter(Boolean))).join(
+        path.delimiter,
+      );
     }
+
+    // Log key env vars for debugging (without exposing full secrets)
+    const apiKey = env.OPENAI_API_KEY;
+    const baseUrl = env.OPENAI_BASE_URL;
+    if (baseUrl) {
+      console.error(`[CodexEngine] Using OPENAI_BASE_URL: ${baseUrl}`);
+    }
+    if (apiKey) {
+      const preview = apiKey.length > 8 ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : '****';
+      console.error(`[CodexEngine] Using OPENAI_API_KEY: ${preview}`);
+    }
+
     return env;
+  }
+
+  private resolveCodexExecutable(): string {
+    const configured =
+      process.env.CODEX_BIN || process.env.CODEX_CLI_PATH || process.env.CODEX_PATH;
+    if (configured?.trim()) {
+      return configured.trim();
+    }
+
+    for (const candidate of CodexEngine.COMMON_CODEX_PATHS) {
+      if (candidate && existsSync(candidate)) {
+        return candidate;
+      }
+    }
+
+    return process.platform === 'win32' ? 'codex.cmd' : 'codex';
+  }
+
+  /**
+   * Read ~/.codex/config.toml and apply base_url / env_key into the child process env.
+   *
+   * The TOML file is parsed with a minimal hand-rolled parser that covers only the
+   * fields the Codex CLI actually uses (no external TOML dependency required):
+   *   - Top-level scalar: model_provider = "..."
+   *   - Section header:  [model_providers.<id>]
+   *   - Section scalar:  base_url = "..."  |  env_key = "..."
+   *
+   * Additionally reads ~/.codex/auth.json to extract OPENAI_API_KEY if not found elsewhere.
+   *
+   * Only populates env vars that are NOT already set in process.env.
+   */
+  private async applyCodexConfig(env: NodeJS.ProcessEnv): Promise<void> {
+    const configPath = path.join(os.homedir(), '.codex', 'config.toml');
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const raw = await readFile(configPath, 'utf-8');
+
+      // ── Minimal TOML parser ───────────────────────────────────────────────
+      // Extracts top-level scalars and [section] → scalar mappings.
+      // Handles quoted strings only (sufficient for Codex config structure).
+      const topLevel: Record<string, string> = {};
+      const sections: Record<string, Record<string, string>> = {};
+      let currentSection: string | null = null;
+
+      for (const rawLine of raw.split('\n')) {
+        const line = rawLine.trim();
+        if (!line || line.startsWith('#')) continue;
+
+        // Section header: [model_providers.my-provider]
+        const sectionMatch = line.match(/^\[([^\]]+)\]$/);
+        if (sectionMatch) {
+          currentSection = sectionMatch[1].trim();
+          if (!sections[currentSection]) sections[currentSection] = {};
+          continue;
+        }
+
+        // Key = "value" (quoted string only)
+        const kvMatch = line.match(/^([\w-]+)\s*=\s*"([^"]*)"$/);
+        if (kvMatch) {
+          const [, k, v] = kvMatch;
+          if (currentSection) {
+            sections[currentSection][k] = v;
+          } else {
+            topLevel[k] = v;
+          }
+        }
+      }
+      // ── End parser ────────────────────────────────────────────────────────
+
+      // Determine active provider from model_provider top-level key
+      const activeProvider = topLevel['model_provider'];
+      if (!activeProvider) {
+        console.error('[CodexEngine] ~/.codex/config.toml: model_provider not set, skipping');
+        return;
+      }
+
+      // Find matching [model_providers.<id>] section
+      const providerSectionKey = Object.keys(sections).find(
+        (k) => k === `model_providers.${activeProvider}` || k.endsWith(`.${activeProvider}`),
+      );
+      const providerConfig = providerSectionKey ? sections[providerSectionKey] : undefined;
+
+      if (!providerConfig) {
+        console.error(
+          `[CodexEngine] ~/.codex/config.toml: no [model_providers.${activeProvider}] section found`,
+        );
+        return;
+      }
+
+      // Apply base_url → OPENAI_BASE_URL
+      const baseUrl = providerConfig['base_url'];
+      if (baseUrl && !process.env.OPENAI_BASE_URL) {
+        env.OPENAI_BASE_URL = baseUrl;
+        console.error(`[CodexEngine] Applied OPENAI_BASE_URL from ~/.codex/config.toml`);
+      }
+
+      // Apply env_key (if present): look up that env var and map to OPENAI_API_KEY
+      const envKey = providerConfig['env_key'];
+      if (envKey && !env.OPENAI_API_KEY) {
+        const keyValue = process.env[envKey] ?? env[envKey];
+        if (keyValue) {
+          env.OPENAI_API_KEY = keyValue;
+          console.error(
+            `[CodexEngine] Applied OPENAI_API_KEY from env var "${envKey}" (via ~/.codex/config.toml)`,
+          );
+        }
+      }
+
+      // If still no API key, check ~/.codex/auth.json for OPENAI_API_KEY
+      if (!env.OPENAI_API_KEY) {
+        try {
+          const authPath = path.join(os.homedir(), '.codex', 'auth.json');
+          const authRaw = await readFile(authPath, 'utf-8');
+          const authData = JSON.parse(authRaw);
+          if (authData.OPENAI_API_KEY) {
+            env.OPENAI_API_KEY = authData.OPENAI_API_KEY;
+            console.error(`[CodexEngine] Applied OPENAI_API_KEY from ~/.codex/auth.json`);
+          }
+        } catch (authErr) {
+          // Ignore file not found or parse errors silently
+        }
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        console.error(`[CodexEngine] Failed to read ~/.codex/config.toml: ${err}`);
+      }
+    }
   }
 
   private pickFirstString(value: unknown): string | undefined {

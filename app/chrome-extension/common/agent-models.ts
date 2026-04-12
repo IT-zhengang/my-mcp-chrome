@@ -28,14 +28,14 @@ export type AgentCliType = 'claude' | 'codex' | 'cursor' | 'qwen' | 'glm';
 
 export const CLAUDE_MODELS: ModelDefinition[] = [
   {
-    id: 'claude-sonnet-4-5-20250929',
-    name: 'Claude Sonnet 4.5',
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
     description: 'Balanced model with large context window',
     supportsImages: true,
   },
   {
-    id: 'claude-opus-4-5-20251101',
-    name: 'Claude Opus 4.5',
+    id: 'claude-opus-4-6',
+    name: 'Claude Opus 4.6',
     description: 'Strongest reasoning model',
     supportsImages: true,
   },
@@ -47,23 +47,31 @@ export const CLAUDE_MODELS: ModelDefinition[] = [
   },
 ];
 
-export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
+export const CLAUDE_DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 // ============================================================
 // Codex Models
 // ============================================================
 
-/** Standard reasoning efforts supported by all models */
+/** Fallback reasoning efforts for unknown Codex models. */
 const CODEX_STANDARD_EFFORTS: readonly CodexReasoningEffort[] = ['low', 'medium', 'high'];
-/** Extended reasoning efforts (includes xhigh) - only for gpt-5.2 and gpt-5.1-codex-max */
+/** Most locally available Codex models also support xhigh reasoning. */
 const CODEX_EXTENDED_EFFORTS: readonly CodexReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
+/** Codex Mini currently supports medium/high only. */
+const CODEX_MINI_EFFORTS: readonly CodexReasoningEffort[] = ['medium', 'high'];
 
 export const CODEX_MODELS: ModelDefinition[] = [
   {
-    id: 'gpt-5.1',
-    name: 'GPT-5.1',
-    description: 'OpenAI high-quality reasoning model',
-    supportedReasoningEfforts: CODEX_STANDARD_EFFORTS,
+    id: 'gpt-5.4',
+    name: 'GPT-5.4',
+    description: 'OpenAI flagship reasoning model',
+    supportedReasoningEfforts: CODEX_EXTENDED_EFFORTS,
+  },
+  {
+    id: 'gpt-5.3-codex',
+    name: 'GPT-5.3 Codex',
+    description: 'Coding-optimized model for agent workflows',
+    supportedReasoningEfforts: CODEX_EXTENDED_EFFORTS,
   },
   {
     id: 'gpt-5.2',
@@ -72,10 +80,10 @@ export const CODEX_MODELS: ModelDefinition[] = [
     supportedReasoningEfforts: CODEX_EXTENDED_EFFORTS,
   },
   {
-    id: 'gpt-5.1-codex',
-    name: 'GPT-5.1 Codex',
-    description: 'Coding-optimized model for agent workflows',
-    supportedReasoningEfforts: CODEX_STANDARD_EFFORTS,
+    id: 'gpt-5.2-codex',
+    name: 'GPT-5.2 Codex',
+    description: 'High-depth coding model with extended effort support',
+    supportedReasoningEfforts: CODEX_EXTENDED_EFFORTS,
   },
   {
     id: 'gpt-5.1-codex-max',
@@ -87,18 +95,20 @@ export const CODEX_MODELS: ModelDefinition[] = [
     id: 'gpt-5.1-codex-mini',
     name: 'GPT-5.1 Codex Mini',
     description: 'Fast, cost-efficient coding model',
-    supportedReasoningEfforts: CODEX_STANDARD_EFFORTS,
+    supportedReasoningEfforts: CODEX_MINI_EFFORTS,
   },
 ];
 
-export const CODEX_DEFAULT_MODEL = 'gpt-5.1';
+export const CODEX_DEFAULT_MODEL = 'gpt-5.4';
 
 // Codex model alias normalization
 const CODEX_ALIAS_MAP: Record<string, string> = {
-  gpt5: 'gpt-5.1',
-  gpt_5: 'gpt-5.1',
-  'gpt-5': 'gpt-5.1',
-  'gpt-5.0': 'gpt-5.1',
+  gpt5: 'gpt-5.4',
+  gpt_5: 'gpt-5.4',
+  'gpt-5': 'gpt-5.4',
+  'gpt-5.0': 'gpt-5.4',
+  'gpt-5.1': 'gpt-5.4',
+  'gpt-5.1-codex': 'gpt-5.3-codex',
 };
 
 const CODEX_KNOWN_IDS = new Set(CODEX_MODELS.map((model) => model.id));
@@ -162,8 +172,8 @@ export const CURSOR_MODELS: ModelDefinition[] = [
     description: 'Cursor auto-selects the best model',
   },
   {
-    id: 'claude-sonnet-4-5-20250929',
-    name: 'Claude Sonnet 4.5',
+    id: 'claude-sonnet-4-6',
+    name: 'Claude Sonnet 4.6',
     description: 'Anthropic Claude via Cursor',
     supportsImages: true,
   },

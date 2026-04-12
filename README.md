@@ -93,7 +93,7 @@ mcp-chrome-bridge register
 
 Add the following configuration to your MCP client configuration (using CherryStudio as an example):
 
-> Streamable HTTP connection method is recommended
+> Streamable HTTP is the recommended connection method.
 
 ```json
 {
@@ -105,6 +105,38 @@ Add the following configuration to your MCP client configuration (using CherrySt
   }
 }
 ```
+
+> Note: different MCP clients use different type strings. CherryStudio uses `streamableHttp`, while many other clients use `streamable-http`.
+
+##### Claude Code
+
+You can also register the local MCP server directly from Claude Code:
+
+```bash
+claude mcp add -s project --transport http chrome-mcp http://127.0.0.1:12306/mcp
+```
+
+Then verify it with:
+
+```bash
+claude mcp list
+```
+
+##### Codex CLI
+
+You can register the same local MCP endpoint in Codex CLI:
+
+```bash
+codex mcp add chrome-mcp --url http://127.0.0.1:12306/mcp
+```
+
+Then verify it with:
+
+```bash
+codex mcp list
+```
+
+> Note: This project now uses the Streamable HTTP MCP endpoint at `/mcp`. Do not use the legacy `/sse` endpoint.
 
 #### Using STDIO Connection (Alternative)
 

@@ -87,11 +87,11 @@ mcp-chrome-bridge register
 
 ### 在支持MCP协议的客户端中使用
 
-#### 使用streamable http的方式连接（👍🏻推荐）
+#### 使用 Streamable HTTP 的方式连接（👍🏻推荐）
 
 将以下配置添加到客户端的 MCP 配置中以cherryStudio为例：
 
-> 推荐用streamable http的连接方式
+> 推荐使用 Streamable HTTP 连接方式
 
 ```json
 {
@@ -103,6 +103,38 @@ mcp-chrome-bridge register
   }
 }
 ```
+
+> 注意：不同 MCP 客户端使用的 `type` 字段写法可能不同。CherryStudio 使用 `streamableHttp`，很多其他客户端使用 `streamable-http`。
+
+##### Claude Code
+
+也可以直接通过 Claude Code 注册本地 MCP 服务：
+
+```bash
+claude mcp add -s project --transport http chrome-mcp http://127.0.0.1:12306/mcp
+```
+
+注册后可通过下面命令检查：
+
+```bash
+claude mcp list
+```
+
+##### Codex CLI
+
+也可以把同一个本地 MCP 地址注册到 Codex CLI：
+
+```bash
+codex mcp add chrome-mcp --url http://127.0.0.1:12306/mcp
+```
+
+注册后可通过下面命令检查：
+
+```bash
+codex mcp list
+```
+
+> 注意：项目现在使用 `/mcp` 这个 Streamable HTTP MCP 端点，不要再使用旧的 `/sse` 端点。
 
 #### 使用stdio的方式连接（备选）
 

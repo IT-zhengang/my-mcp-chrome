@@ -139,7 +139,7 @@
             <p class="text-[10px]" :style="{ color: 'var(--ac-text-subtle, #a8a29e)' }">
               Controls the reasoning depth. Higher effort = better quality but slower.
               <span v-if="!availableReasoningEfforts.includes('xhigh')" class="block mt-1">
-                Note: xhigh is only available for gpt-5.2 and gpt-5.1-codex-max models.
+                Note: gpt-5.1-codex-mini currently supports medium and high only.
               </span>
             </p>
           </div>
