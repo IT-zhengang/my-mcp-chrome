@@ -61,37 +61,38 @@ jobs:
           pnpm --filter chrome-mcp-shared build
           pnpm --filter chrome-mcp-server run postinstall
 
-      - name: Build zip package
-        run: pnpm --filter chrome-mcp-server zip
+      - name: Build extension package
+        run: pnpm --filter chrome-mcp-server build
 
       - name: Prepare release files
         id: release_files
         run: |
           set -euo pipefail
 
-          ZIP_FILE="$(find app/chrome-extension/.output -maxdepth 1 -type f -name '*.zip' | head -n 1)"
-          if [ -z "$ZIP_FILE" ]; then
-            echo "No zip artifact was generated under app/chrome-extension/.output"
+          BUILD_DIR="app/chrome-extension/.output/chrome-mv3"
+          if [ ! -d "$BUILD_DIR" ]; then
+            echo "Build output directory not found: $BUILD_DIR"
             exit 1
           fi
 
-          TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
-          LATEST_DIR="releases/chrome-extension/latest"
-          VERSION_DIR="releases/chrome-extension/${TIMESTAMP}"
+          LASTEST_DIR="releases/chrome-extension/lastest"
+          PACKAGE_NAME="chrome-mcp-server-lastest.zip"
 
-          mkdir -p "$LATEST_DIR" "$VERSION_DIR"
-          rm -f "$LATEST_DIR"/*.zip
+          mkdir -p "$LASTEST_DIR"
+          rm -rf "$LASTEST_DIR"/*
 
-          cp "$ZIP_FILE" "$LATEST_DIR/${REPO_NAME}-latest.zip"
-          cp "$ZIP_FILE" "$VERSION_DIR/${REPO_NAME}-${TIMESTAMP}.zip"
+          (
+            cd "$BUILD_DIR"
+            zip -qr "../../../$LASTEST_DIR/$PACKAGE_NAME" .
+          )
 
-          echo "artifact_dir=releases/chrome-extension" >> "$GITHUB_OUTPUT"
-          echo "timestamp=${TIMESTAMP}" >> "$GITHUB_OUTPUT"
+          echo "artifact_dir=$LASTEST_DIR" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chrome-extension-build-${{ steps.release_files.outputs.timestamp }}
+          name: ${{ steps.release_files.outputs.artifact_name }}
           path: ${{ steps.release_files.outputs.artifact_dir }}
           retention-days: 30
 
