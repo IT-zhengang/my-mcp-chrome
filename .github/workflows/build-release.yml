@@ -77,13 +77,14 @@ jobs:
 
           LASTEST_DIR="releases/chrome-extension/lastest"
           PACKAGE_NAME="chrome-mcp-server-lastest.zip"
+          OUTPUT_ZIP="$GITHUB_WORKSPACE/$LASTEST_DIR/$PACKAGE_NAME"
 
           mkdir -p "$LASTEST_DIR"
           rm -rf "$LASTEST_DIR"/*
 
           (
             cd "$BUILD_DIR"
-            zip -qr "../../../$LASTEST_DIR/$PACKAGE_NAME" .
+            zip -qr "$OUTPUT_ZIP" .
           )
 
           echo "artifact_dir=$LASTEST_DIR" >> "$GITHUB_OUTPUT"
