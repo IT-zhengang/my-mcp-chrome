@@ -57,22 +57,34 @@ jobs:
           pnpm --filter chrome-mcp-shared build
           pnpm --filter chrome-mcp-server run postinstall
 
-      - name: Build extension zip
-        run: pnpm --filter chrome-mcp-server zip
+      - name: Build extension package
+        run: pnpm --filter chrome-mcp-server build
 
-      - name: Resolve release asset
+      - name: Prepare release package
         id: asset
         run: |
           set -euo pipefail
 
-          ZIP_FILE="$(find app/chrome-extension/.output -maxdepth 1 -type f -name '*.zip' | head -n 1)"
-          if [ -z "$ZIP_FILE" ]; then
-            echo "No zip artifact was generated under app/chrome-extension/.output"
+          BUILD_DIR="app/chrome-extension/.output/chrome-mv3"
+          if [ ! -d "$BUILD_DIR" ]; then
+            echo "Build output directory not found: $BUILD_DIR"
             exit 1
           fi
 
+          LASTEST_DIR="releases/chrome-extension/lastest"
+          LASTEST_NAME="chrome-mcp-server-lastest.zip"
+          OUTPUT_ZIP="$GITHUB_WORKSPACE/$LASTEST_DIR/$LASTEST_NAME"
           ASSET_NAME="${GITHUB_REPOSITORY#*/}-${TAG_NAME}.zip"
-          cp "$ZIP_FILE" "./${ASSET_NAME}"
+
+          mkdir -p "$LASTEST_DIR"
+          rm -rf "$LASTEST_DIR"/*
+
+          (
+            cd "$BUILD_DIR"
+            zip -qr "$OUTPUT_ZIP" .
+          )
+
+          cp "$OUTPUT_ZIP" "./${ASSET_NAME}"
 
           echo "path=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
           echo "name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
