@@ -148,8 +148,9 @@ export default defineConfig({
             dest: '_locales',
           },
         ],
-        // Use writeBundle so outDir exists for dev and prod
-        hook: 'writeBundle',
+        // These files are referenced by chrome.scripting.executeScript during build analysis.
+        // Copy them before late bundle-finalization steps so clean CI builds don't stat missing files.
+        hook: 'generateBundle',
         // Enable watch so changes to these files are reflected during dev
         watch: {
           // Use default patterns inferred from targets; explicit true enables watching
