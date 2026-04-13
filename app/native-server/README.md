@@ -88,6 +88,53 @@ npm i -g mcp-chrome-bridge
 - **macOS**: `~/Library/Application Support/[Browser]/NativeMessagingHosts/`
 - **Windows**: `%APPDATA%\[Browser]\NativeMessagingHosts\`
 
+### MCP 客户端配置
+
+推荐使用 Streamable HTTP 方式连接本地 MCP 服务：
+
+```json
+{
+  "mcpServers": {
+    "chrome-mcp-server": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:12306/mcp"
+    }
+  }
+}
+```
+
+> 注意：不同 MCP 客户端使用的 `type` 字段写法可能不同，有些客户端使用 `streamable-http`，有些客户端使用 `streamableHttp`。请以客户端实际要求为准。
+
+#### Claude Code
+
+可直接通过 Claude Code 添加本地 MCP 服务：
+
+```bash
+claude mcp add -s project --transport http chrome-mcp http://127.0.0.1:12306/mcp
+```
+
+检查配置：
+
+```bash
+claude mcp list
+```
+
+#### Codex CLI
+
+可直接通过 Codex CLI 添加同一个 MCP 地址：
+
+```bash
+codex mcp add chrome-mcp --url http://127.0.0.1:12306/mcp
+```
+
+检查配置：
+
+```bash
+codex mcp list
+```
+
+> 注意：当前项目使用 `/mcp` 这个 Streamable HTTP 端点，不再推荐使用旧的 `/sse` 端点。
+
 ### 与Chrome扩展集成
 
 以下是Chrome扩展中如何使用此服务的简单示例：

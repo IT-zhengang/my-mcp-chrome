@@ -301,7 +301,9 @@ export type CodexSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-ac
 /**
  * Reasoning effort for Codex models.
  * - low/medium/high: supported by all models
- * - xhigh: only supported by gpt-5.2 and gpt-5.1-codex-max
+ * - xhigh: supported by the top-tier models in this project list, including
+ *   gpt-5.4, gpt-5.3-codex, gpt-5.2, gpt-5.2-codex, and gpt-5.1-codex-max
+ * - gpt-5.1-codex-mini currently supports medium/high only
  */
 export type CodexReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 

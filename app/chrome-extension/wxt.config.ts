@@ -2,7 +2,9 @@ import { defineConfig } from 'wxt';
 import tailwindcss from '@tailwindcss/vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import { config } from 'dotenv';
-import { resolve } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
 import Icons from 'unplugin-icons/vite';
 import Components from 'unplugin-vue-components/vite';
 import IconsResolver from 'unplugin-icons/resolver';
@@ -10,7 +12,33 @@ import IconsResolver from 'unplugin-icons/resolver';
 config({ path: resolve(process.cwd(), '.env') });
 config({ path: resolve(process.cwd(), '.env.local') });
 
-const CHROME_EXTENSION_KEY = process.env.CHROME_EXTENSION_KEY;
+const CONFIG_DIR = dirname(fileURLToPath(import.meta.url));
+const MANIFEST_KEY_FILE = resolve(CONFIG_DIR, 'chrome-extension-public-key.txt');
+const EXTENSION_ID_PATTERN = /^[a-p]{32}$/;
+
+function loadManifestKey(): string | undefined {
+  const configuredKey = process.env.CHROME_EXTENSION_PUBLIC_KEY ?? process.env.CHROME_EXTENSION_KEY;
+
+  const normalizedConfiguredKey = configuredKey?.trim();
+  if (normalizedConfiguredKey) {
+    if (EXTENSION_ID_PATTERN.test(normalizedConfiguredKey)) {
+      console.warn(
+        '[chrome-extension] Ignoring CHROME_EXTENSION_KEY because it looks like an extension ID, not a manifest public key.',
+      );
+    } else {
+      return normalizedConfiguredKey;
+    }
+  }
+
+  if (!existsSync(MANIFEST_KEY_FILE)) {
+    return undefined;
+  }
+
+  const fileKey = readFileSync(MANIFEST_KEY_FILE, 'utf8').trim();
+  return fileKey || undefined;
+}
+
+const CHROME_EXTENSION_KEY = loadManifestKey();
 // Detect dev mode early for manifest-level switches
 const IS_DEV = process.env.NODE_ENV !== 'production' && process.env.MODE !== 'production';
 
@@ -148,8 +176,9 @@ export default defineConfig({
             dest: '_locales',
           },
         ],
-        // Use writeBundle so outDir exists for dev and prod
-        hook: 'writeBundle',
+        // These files are referenced by chrome.scripting.executeScript during build analysis.
+        // Copy them before late bundle-finalization steps so clean CI builds don't stat missing files.
+        hook: 'generateBundle',
         // Enable watch so changes to these files are reflected during dev
         watch: {
           // Use default patterns inferred from targets; explicit true enables watching

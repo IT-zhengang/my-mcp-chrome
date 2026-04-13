@@ -1,0 +1,106 @@
+name: Publish GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing git tag to publish, for example v1.0.0
+        required: true
+        type: string
+      release_name:
+        description: Optional release title override
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-release:
+    runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.ref_name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.ref }}
+
+      - name: Ensure tag exists
+        run: git rev-parse "${TAG_NAME}^{tag}" >/dev/null 2>&1 || git rev-parse "${TAG_NAME}^{commit}" >/dev/null 2>&1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Enable Corepack pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@9 --activate
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Prepare workspace packages
+        run: |
+          pnpm --filter chrome-mcp-shared build
+          pnpm --filter chrome-mcp-server run postinstall
+
+      - name: Build extension package
+        run: pnpm --filter chrome-mcp-server build
+
+      - name: Prepare release package
+        id: asset
+        run: |
+          set -euo pipefail
+
+          BUILD_DIR="app/chrome-extension/.output/chrome-mv3"
+          if [ ! -d "$BUILD_DIR" ]; then
+            echo "Build output directory not found: $BUILD_DIR"
+            exit 1
+          fi
+
+          LASTEST_DIR="releases/chrome-extension/lastest"
+          LASTEST_NAME="chrome-mcp-server-lastest.zip"
+          OUTPUT_ZIP="$GITHUB_WORKSPACE/$LASTEST_DIR/$LASTEST_NAME"
+          ASSET_NAME="${GITHUB_REPOSITORY#*/}-${TAG_NAME}.zip"
+
+          mkdir -p "$LASTEST_DIR"
+          rm -rf "$LASTEST_DIR"/*
+
+          (
+            cd "$BUILD_DIR"
+            zip -qr "$OUTPUT_ZIP" .
+          )
+
+          cp "$OUTPUT_ZIP" "./${ASSET_NAME}"
+
+          echo "path=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+          echo "name=${ASSET_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          RELEASE_NAME_INPUT="${{ github.event.inputs.release_name }}"
+          RELEASE_NAME="${RELEASE_NAME_INPUT:-$TAG_NAME}"
+
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${{ steps.asset.outputs.path }}" --clobber
+          else
+            gh release create "${TAG_NAME}" "${{ steps.asset.outputs.path }}" \
+              --title "${RELEASE_NAME}" \
+              --generate-notes
+          fi

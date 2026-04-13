@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import os from 'node:os';
 import type { AgentEngine, EngineExecutionContext, EngineInitOptions } from './types';
 import type { AgentMessage, RealtimeEvent } from '../types';
 import { detectCcr, validateCcrConfig } from '../ccr-detector';
@@ -107,8 +108,7 @@ export class ClaudeEngine implements AgentEngine {
     }
 
     // Resolve model
-    const resolvedModel =
-      model?.trim() || process.env.CLAUDE_DEFAULT_MODEL || 'claude-sonnet-4-20250514';
+    const resolvedModel = model?.trim() || process.env.CLAUDE_DEFAULT_MODEL || 'claude-sonnet-4-6';
 
     // State management
     const stderrBuffer: string[] = [];
@@ -1256,6 +1256,13 @@ export class ClaudeEngine implements AgentEngine {
    * 1. Auto-detecting CCR from config file (~/.claude-code-router/config.json)
    * 2. Passing through env vars if already set (via `eval "$(ccr activate)"`)
    *
+   * Also reads ~/.claude/settings.json `env` field as a fallback for:
+   *   - ANTHROPIC_API_KEY
+   *   - ANTHROPIC_BASE_URL
+   *   - CLAUDE_DEFAULT_MODEL
+   *   (and any other keys in that env block)
+   * Priority: process.env > settings.json env > CCR detection
+   *
    * SDK treats options.env as a complete replacement (not merged with process.env),
    * so we must explicitly include all necessary variables.
    *
@@ -1270,6 +1277,10 @@ export class ClaudeEngine implements AgentEngine {
     if (!currentPath.includes(nodeBinDir)) {
       env.PATH = [nodeBinDir, currentPath].filter(Boolean).join(path.delimiter);
     }
+
+    // Read ~/.claude/settings.json and apply its `env` block as fallback
+    // process.env always takes precedence over settings.json values
+    await this.applyClaudeSettingsEnv(env);
 
     // Only detect CCR if explicitly enabled for this project
     if (useCcr && !env.ANTHROPIC_BASE_URL) {
@@ -1292,9 +1303,10 @@ export class ClaudeEngine implements AgentEngine {
       }
     }
 
-    // Log CCR-related env vars for debugging (without exposing full token)
+    // Log key env vars for debugging (without exposing full secrets)
     const baseUrl = env.ANTHROPIC_BASE_URL;
     const authToken = env.ANTHROPIC_AUTH_TOKEN;
+    const apiKey = env.ANTHROPIC_API_KEY;
     if (baseUrl) {
       console.error(`[ClaudeEngine] Using ANTHROPIC_BASE_URL: ${baseUrl}`);
     }
@@ -1303,8 +1315,62 @@ export class ClaudeEngine implements AgentEngine {
         authToken.length > 8 ? `${authToken.slice(0, 4)}...${authToken.slice(-4)}` : '****';
       console.error(`[ClaudeEngine] Using ANTHROPIC_AUTH_TOKEN: ${preview}`);
     }
+    if (apiKey) {
+      const preview = apiKey.length > 8 ? `${apiKey.slice(0, 8)}...${apiKey.slice(-4)}` : '****';
+      console.error(`[ClaudeEngine] Using ANTHROPIC_API_KEY: ${preview}`);
+    }
 
     return env;
+  }
+
+  /**
+   * Read ~/.claude/settings.json and apply its `env` block into the given env object.
+   * Only sets keys that are NOT already present in env (process.env takes precedence).
+   *
+   * Expected settings.json structure:
+   * {
+   *   "env": {
+   *     "ANTHROPIC_API_KEY": "sk-ant-...",
+   *     "ANTHROPIC_BASE_URL": "https://your-proxy.example.com",
+   *     "CLAUDE_DEFAULT_MODEL": "claude-sonnet-4-6"
+   *   }
+   * }
+   */
+  private async applyClaudeSettingsEnv(env: NodeJS.ProcessEnv): Promise<void> {
+    const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+    try {
+      const { readFile } = await import('node:fs/promises');
+      const raw = await readFile(settingsPath, 'utf-8');
+      const settings = JSON.parse(raw) as Record<string, unknown>;
+
+      if (!settings.env || typeof settings.env !== 'object' || Array.isArray(settings.env)) {
+        return;
+      }
+
+      const settingsEnv = settings.env as Record<string, unknown>;
+      let appliedCount = 0;
+
+      for (const [key, value] of Object.entries(settingsEnv)) {
+        if (typeof value !== 'string') continue;
+        // Only apply if not already set by process.env (process.env takes priority)
+        if (!process.env[key]) {
+          env[key] = value;
+          appliedCount++;
+        }
+      }
+
+      if (appliedCount > 0) {
+        console.error(
+          `[ClaudeEngine] Applied ${appliedCount} env var(s) from ~/.claude/settings.json`,
+        );
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        // Only warn for unexpected errors; silently ignore missing file
+        console.error(`[ClaudeEngine] Failed to read ~/.claude/settings.json: ${err}`);
+      }
+    }
   }
 
   /**

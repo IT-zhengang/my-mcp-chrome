@@ -1,4 +1,4 @@
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import {
   CallToolRequestSchema,
   CallToolResult,
@@ -66,15 +66,15 @@ async function listDynamicFlowTools(): Promise<Tool[]> {
   }
 }
 
-export const setupTools = (server: Server) => {
+export const setupTools = (server: McpServer) => {
   // List tools handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
+  server.server.setRequestHandler(ListToolsRequestSchema, async () => {
     const dynamicTools = await listDynamicFlowTools();
     return { tools: [...TOOL_SCHEMAS, ...dynamicTools] };
   });
 
   // Call tool handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) =>
+  server.server.setRequestHandler(CallToolRequestSchema, async (request) =>
     handleToolCall(request.params.name, request.params.arguments || {}),
   );
 };
